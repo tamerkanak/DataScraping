@@ -30,7 +30,6 @@ def converting_csv_file():
 
 def filter_data():
     selected_brand = brand_var.get()
-    selected_model = model_var.get()
     selected_year = year_var.get()
 
     # Get entered minimum and maximum prices
@@ -47,17 +46,29 @@ def filter_data():
         treeview.insert('', 'end', values=["Invalid price values"])
         return
 
-    # Filter by selected brand, model, and price range
-    if selected_year == "All":
+    # Convert selected year to integer
+    try:
+        selected_year = int(selected_year) if selected_year != "All" else None
+    except ValueError:
+        treeview.delete(*treeview.get_children())  # Clear the Treeview
+        treeview.insert('', 'end', values=["Invalid year value"])
+        return
+
+    # Filter by selected brand, year, and price range
+    if selected_brand == "All":
+        filtered_cars = [car for car in data if
+                         (selected_year is None or int(car['year']) == selected_year) and
+                         min_price <= float(car['price'].replace('₺', '').replace('.', '').replace(',', '')) <= max_price]
+    elif model_var.get() == "All":
         filtered_cars = [car for car in data if
                          car['brand'] == selected_brand and
-                         car['model'] == selected_model and
+                         (selected_year is None or int(car['year']) == selected_year) and
                          min_price <= float(car['price'].replace('₺', '').replace('.', '').replace(',', '')) <= max_price]
     else:
         filtered_cars = [car for car in data if
                          car['brand'] == selected_brand and
-                         car['model'] == selected_model and
-                         car['year'] == selected_year and
+                         car['model'] == model_var.get() and
+                         (selected_year is None or int(car['year']) == selected_year) and
                          min_price <= float(car['price'].replace('₺', '').replace('.', '').replace(',', '')) <= max_price]
 
     # Cleaning UI
@@ -73,7 +84,6 @@ def filter_data():
         # If no matching data, show a message
         treeview.insert('', 'end', values=["No matching data found"])
 
-
 # Reading data from text file and neatly creating dictionary
 with open('output.csv', 'r', encoding='utf-8') as file:
     lines = file.readlines()
@@ -81,6 +91,9 @@ with open('output.csv', 'r', encoding='utf-8') as file:
 data = []
 for line in lines:
     parts = line.strip().split(';')
+
+    if(len(parts) > 23):
+        print(parts)
 
     car = {
         'model': parts[0],
@@ -109,6 +122,7 @@ for line in lines:
     }
 
     data.append(car)
+print(data[24])
 
 # Creating a TKinter window
 root = tk.Tk()
@@ -116,10 +130,42 @@ root.title("Second Hand Car App")
 input_frame = tk.Frame(root)
 input_frame.pack()
 
+def search_data():
+    search_term = search_entry.get().strip().lower()
+
+    if not search_term:
+        return  # If the search term is empty, do not take action
+
+    # Clear filtered data
+    for i in treeview.get_children():
+        treeview.delete(i)
+
+    # Search by brand or model
+    filtered_cars = [car for car in data if
+                     search_term in car['brand'].lower() or
+                     search_term in car['model'].lower() or
+                     (search_term in f"{car['brand'].lower()} {car['model'].lower()}")]
+
+    # Show filtered data
+    if filtered_cars:
+        for car in filtered_cars:
+            values = [car.get(col.replace(' ', '_').lower(), '') for col in columns]
+            treeview.insert('', 'end', values=values)
+    else:
+        treeview.insert('', 'end', values=["No matching data found"])
+
+# Search entry
+search_entry = tk.Entry(input_frame)
+search_entry.pack(side=tk.LEFT)
+
+# Search button
+search_button = tk.Button(input_frame, text="Search", command=search_data)
+search_button.pack(side=tk.LEFT, padx=(5, 200))
+
 # Brand filtering
-brand = list(set(car['brand'] for car in data))
+brand = ['All'] + list(set(car['brand'] for car in data))
 brand_var = tk.StringVar(root)
-brand_var.set(brand[0])  # Select first brand initially
+brand_var.set(brand[0])  # Select "All" brand initially
 brand_label = tk.Label(input_frame, text="Brand:")
 brand_label.pack(side=tk.LEFT)
 
@@ -129,19 +175,34 @@ brand_dropdown.pack(side=tk.LEFT)
 # Model filtering
 model = list(set(car['model'] for car in data))
 model_var = tk.StringVar(root)
-model_var.set(model[0])  # Select first model initially
+model_var.set("All")  # Select "All" model initially
 
 model_label = tk.Label(input_frame, text="Model:")
 model_label.pack(side=tk.LEFT)
 
-model_dropdown = tk.OptionMenu(input_frame, model_var, *model)
+model_dropdown = tk.OptionMenu(input_frame, model_var, "All", *model)
 model_dropdown.pack(side=tk.LEFT)
+
+def update_models(*args):
+    selected_brand = brand_var.get()
+    models_for_selected_brand = list(set(car['model'] for car in data if car['brand'] == selected_brand))
+    models_for_selected_brand.insert(0, "All")  # Show all models
+    model_var.set("All")  # Initially selected "All"
+
+    # Update model dropdown menu options
+    menu = model_dropdown["menu"]
+    menu.delete(0, "end")
+    for model in models_for_selected_brand:
+        menu.add_command(label=model, command=tk._setit(model_var, model))
+
+# Update models when brand selection changes
+brand_var.trace_add("write", update_models)
 
 # Year dropdown
 years = list(set(car['year'] for car in data))
-years.insert(0, "All")  # Eklenen satır: Tüm yılları göster
+years.insert(0, "All")  # Added row: Show all years
 year_var = tk.StringVar(root)
-year_var.set("All")  # Değişen satır: Başlangıçta "All" seçili
+year_var.set("All")  # Changed line: "All" is initially selected
 
 year_label = tk.Label(input_frame, text="Filtering Year:")
 year_label.pack(side=tk.LEFT)
@@ -182,10 +243,15 @@ root.geometry(f"{initial_width}x{initial_height}+{initial_position_x}+{initial_p
 # Creating a data display widget (we will use Treeview)
 treeview = ttk.Treeview(root, columns=columns, show='headings')
 
+# Set column widths for each column
+column_widths = [60, 60, 100, 60, 60, 60, 100, 100, 80, 100, 80, 60, 60, 80, 80, 80, 100, 80, 80, 80, 60, 100, 60, 60]
+for col, width in zip(columns, column_widths):
+    treeview.column(col, width=width, anchor=tk.CENTER)  # Adjust the anchor as needed
+
 # Adjust column headers
 for col in columns:
     treeview.heading(col, text=col)
-    
+
 # Make the Treeview widget expand to fill available space
 treeview.pack(expand=True, fill=tk.BOTH)
 root.mainloop()
